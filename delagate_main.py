@@ -2,6 +2,7 @@ import pygame
 import math
 import networkx as nx
 from collections import defaultdict
+import json
 
 def distribute_votes(delegations, voted):
     all_people = set(delegations.keys())
@@ -57,34 +58,51 @@ def draw_graph(delegations, initial_voted):
     font = pygame.font.Font(None, 24)
     small_font = pygame.font.Font(None, 20)
 
-    # Node positions using networkx layout, scaled to screen size
-    pos = nx.kamada_kawai_layout(G)
+    positions_filename = "node_positions.json"
+    all_nodes = set(G.nodes())
+    node_positions = None
 
-    # Normalize positions to be in [0, 1] range
-    min_x = min(p[0] for p in pos.values())
-    max_x = max(p[0] for p in pos.values())
-    min_y = min(p[1] for p in pos.values())
-    max_y = max(p[1] for p in pos.values())
+    try:
+        with open(positions_filename, 'r') as f:
+            loaded_positions = json.load(f)
+        if set(loaded_positions.keys()) == all_nodes:
+            node_positions = loaded_positions
+            print("Загружены сохраненные позиции узлов.")
+        else:
+            print("Узлы в файле не соответствуют текущему графу. Будет создано новое расположение.")
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass # Файл не найден или поврежден, будет создано новое расположение
 
-    # Avoid division by zero if all nodes are in a line
-    range_x = max_x - min_x if max_x > min_x else 1
-    range_y = max_y - min_y if max_y > min_y else 1
+    if node_positions is None:
+        # Node positions using networkx layout, scaled to screen size
+        print("Создание нового расположения узлов...")
+        pos = nx.kamada_kawai_layout(G)
 
-    normalized_pos = {
-        node: [
-            (p[0] - min_x) / range_x,
-            (p[1] - min_y) / range_y
-        ]
-        for node, p in pos.items()
-    }
+        # Normalize positions to be in [0, 1] range
+        min_x = min(p[0] for p in pos.values())
+        max_x = max(p[0] for p in pos.values())
+        min_y = min(p[1] for p in pos.values())
+        max_y = max(p[1] for p in pos.values())
 
-    node_positions = {
-        node: [
-            int(p[0] * (width - 100) + 50),
-            int(p[1] * (height - 100) + 50)
-        ]
-        for node, p in normalized_pos.items()
-    }
+        # Avoid division by zero if all nodes are in a line
+        range_x = max_x - min_x if max_x > min_x else 1
+        range_y = max_y - min_y if max_y > min_y else 1
+
+        normalized_pos = {
+            node: [
+                (p[0] - min_x) / range_x,
+                (p[1] - min_y) / range_y
+            ]
+            for node, p in pos.items()
+        }
+
+        node_positions = {
+            node: [
+                int(p[0] * (width - 100) + 50),
+                int(p[1] * (height - 100) + 50)
+            ]
+            for node, p in normalized_pos.items()
+        }
 
     # Colors
     GREEN = (144, 238, 144)
@@ -178,6 +196,11 @@ def draw_graph(delegations, initial_voted):
 
 
         pygame.display.flip()
+
+    # Save positions before quitting
+    with open(positions_filename, 'w') as f:
+        json.dump(node_positions, f, indent=4)
+    print(f"Позиции узлов сохранены в {positions_filename}")
 
     pygame.quit()
 
