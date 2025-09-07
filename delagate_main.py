@@ -4,17 +4,22 @@ import networkx as nx
 from collections import defaultdict
 import json
 
-def distribute_votes(delegations, voted):
+def distribute_votes(delegations, voted, balances):
     all_people = set(delegations.keys())
     for d_list in delegations.values():
         all_people.update(d_list)
+    all_people.update(balances.keys())
+
 
     final_votes = defaultdict(float)
     for p in all_people:
         if p in voted:
-            final_votes[p] = 1.0
+            final_votes[p] = balances.get(p, 1.0)
 
-    votes_to_distribute = {p: 1.0 for p in all_people if p not in voted}
+    votes_to_distribute = {p: balances.get(p, 1.0) for p in all_people if p not in voted}
+
+    print("Initial final_votes:", dict(final_votes))
+    print("Initial votes_to_distribute:", votes_to_distribute)
 
     num_rounds = len(all_people) * 2 # Sufficiently large number of rounds
 
@@ -44,7 +49,7 @@ def distribute_votes(delegations, voted):
     return dict(final_votes)
 
 
-def draw_graph(delegations, initial_voted):
+def draw_graph(delegations, initial_voted, balances):
     G = nx.DiGraph()
     for person, delegates in delegations.items():
         for d in delegates:
@@ -113,7 +118,7 @@ def draw_graph(delegations, initial_voted):
     NODE_RADIUS = 30
 
     voted = initial_voted.copy()
-    results = distribute_votes(delegations, voted)
+    results = distribute_votes(delegations, voted, balances)
 
     running = True
     selected_node = None
@@ -140,7 +145,7 @@ def draw_graph(delegations, initial_voted):
                             voted.remove(clicked_node)
                         else:
                             voted.add(clicked_node)
-                        results = distribute_votes(delegations, voted)
+                        results = distribute_votes(delegations, voted, balances)
                         print("Итоговое распределение голосов:", results)
 
             elif event.type == pygame.MOUSEBUTTONUP:
@@ -252,6 +257,15 @@ if __name__ == "__main__":
 
     voted = {"N5", "N10", "N15", "N18", "N20"}
 
+    balances = {
+        "N1": 10,
+        "N2": 20,
+        "N3": 30,
+        "N4": 5,
+        "N16": 50,
+        "N19": 100,
+    }
+
     # Убедимся, что все узлы есть в словаре делегаций
     all_nodes = set(delegations.keys())
     for delegates_list in delegations.values():
@@ -261,4 +275,4 @@ if __name__ == "__main__":
         if node not in delegations:
             delegations[node] = []
 
-    draw_graph(delegations, voted)
+    draw_graph(delegations, voted, balances)
