@@ -1,59 +1,14 @@
 import pygame
 import math
 import networkx as nx
-from collections import defaultdict
 import json
+from voting_classes import VotingSystem
 
-def distribute_votes(delegations, voted, balances):
-    all_people = set(delegations.keys())
-    for d_list in delegations.values():
-        all_people.update(d_list)
-    all_people.update(balances.keys())
-
-
-    final_votes = defaultdict(float)
-    for p in all_people:
-        if p in voted:
-            final_votes[p] = balances.get(p, 1.0)
-
-    votes_to_distribute = {p: balances.get(p, 1.0) for p in all_people if p not in voted}
-
-    print("Initial final_votes:", dict(final_votes))
-    print("Initial votes_to_distribute:", votes_to_distribute)
-
-    num_rounds = len(all_people) * 2 # Sufficiently large number of rounds
-
-    for _ in range(num_rounds):
-        if not votes_to_distribute:
-            break
-            
-        next_round_votes = defaultdict(float)
-        
-        for p, weight in votes_to_distribute.items():
-            # This person is a non-voter, distribute their current weight
-            delegates = delegations.get(p)
-            if not delegates:
-                # Vote is lost if a non-voter has no delegates
-                continue
-
-            share = weight / len(delegates)
-            for d in delegates:
-                if d in voted:
-                    final_votes[d] += share
-                else:
-                    # Delegate is also a non-voter, pass the vote for the next round
-                    next_round_votes[d] += share
-        
-        votes_to_distribute = next_round_votes
-
-    return dict(final_votes)
-
-
-def draw_graph(delegations, initial_voted, balances):
+def draw_graph(system):
     G = nx.DiGraph()
-    for person, delegates in delegations.items():
-        for d in delegates:
-            G.add_edge(person, d)
+    for person in system.people.values():
+        for delegate in person.delegates:
+            G.add_edge(person.name, delegate.name)
 
     # Pygame setup
     pygame.init()
@@ -117,8 +72,7 @@ def draw_graph(delegations, initial_voted, balances):
     EDGE_COLOR = (200, 200, 200)
     NODE_RADIUS = 30
 
-    voted = initial_voted.copy()
-    results = distribute_votes(delegations, voted, balances)
+    results = system.distribute_votes()
 
     running = True
     selected_node = None
@@ -129,23 +83,21 @@ def draw_graph(delegations, initial_voted, balances):
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click for dragging
-                    for node, p in node_positions.items():
+                    for node_name, p in node_positions.items():
                         if math.hypot(event.pos[0] - p[0], event.pos[1] - p[1]) <= NODE_RADIUS:
-                            selected_node = node
+                            selected_node = node_name
                             break
                 elif event.button == 3:  # Right click for voting
-                    clicked_node = None
-                    for node, p in node_positions.items():
+                    clicked_node_name = None
+                    for node_name, p in node_positions.items():
                         if math.hypot(event.pos[0] - p[0], event.pos[1] - p[1]) <= NODE_RADIUS:
-                            clicked_node = node
+                            clicked_node_name = node_name
                             break
                     
-                    if clicked_node:
-                        if clicked_node in voted:
-                            voted.remove(clicked_node)
-                        else:
-                            voted.add(clicked_node)
-                        results = distribute_votes(delegations, voted, balances)
+                    if clicked_node_name:
+                        person = system.people[clicked_node_name]
+                        person.is_voter = not person.is_voter
+                        results = system.distribute_votes()
                         print("Итоговое распределение голосов:", results)
 
             elif event.type == pygame.MOUSEBUTTONUP:
@@ -182,19 +134,20 @@ def draw_graph(delegations, initial_voted, balances):
 
 
         # Draw nodes and labels
-        for node, p in node_positions.items():
-            color = GREEN if node in voted else GRAY
+        for node_name, p in node_positions.items():
+            person = system.people[node_name]
+            color = GREEN if person.is_voter else GRAY
             pygame.draw.circle(screen, color, p, NODE_RADIUS)
             pygame.draw.circle(screen, BORDER_COLOR, p, NODE_RADIUS, 1)
 
             # Label
-            label_text = f"{node}"
+            label_text = f"{node_name}"
             text_surf = font.render(label_text, True, TEXT_COLOR)
             text_rect = text_surf.get_rect(center=p)
             screen.blit(text_surf, text_rect)
 
             # Result
-            result_text = f"{results.get(node, 0):.2f}"
+            result_text = f"{results.get(node_name, 0):.2f}"
             result_surf = small_font.render(result_text, True, TEXT_COLOR)
             result_rect = result_surf.get_rect(center=(p[0], p[1] + 20))
             screen.blit(result_surf, result_rect)
@@ -212,67 +165,33 @@ def draw_graph(delegations, initial_voted, balances):
 
 if __name__ == "__main__":
     # ==== Новый сложный пример ====
-    # Около 20 узлов, 5 голосуют, разнообразные связи
-
-    # Узлы: N1, N2, ..., N20
-    # Голосующие узлы: N5, N10, N15, N18, N20
-
-    delegations = {
-        # Простая цепочка, ведущая к голосующему
-        "N1": ["N2"],
-        "N2": ["N3"],
-        "N3": ["N5"],  # N5 голосует
-
-        # Узел, делегирующий двум разным веткам
-        "N4": ["N5", "N10"], # Делегирует двум голосующим
-
-        # Хаб: несколько узлов делегируют одному, который затем делегирует дальше
-        "N6": ["N7"],
-        "N8": ["N7"],
-        "N9": ["N7"],
-        "N7": ["N10"], # N10 голосует
-
-        # Изолированный цикл (голоса теряются)
-        "N11": ["N12"],
-        "N12": ["N11"],
-
-        # Цикл, из которого есть выход к голосующему
-        "N13": ["N14"],
-        "N14": ["N13", "N15"], # N15 голосует
-
-        # Длинная и более сложная цепочка
-        "N16": ["N17"],
-        "N17": ["N18"], # N18 голосует
-
-        # Изолированный узел, не голосует и никому не делегирует
-        "N19": [],
-
-        # Узлы, которые просто голосуют сами по себе
-        "N5": [],
-        "N10": [],
-        "N15": [],
-        "N18": [],
-        "N20": [], # N20 тоже голосует
+    delegations_data = {
+        "N1": ["N2"], "N2": ["N3"], "N3": ["N5"],
+        "N4": ["N5", "N10"],
+        "N6": ["N7"], "N8": ["N7"], "N9": ["N7"], "N7": ["N10"],
+        "N11": ["N12"], "N12": ["N11"],
+        "N13": ["N14"], "N14": ["N13", "N15"],
+        "N16": ["N17"], "N17": ["N18"],
+        "N19": [], "N5": [], "N10": [], "N15": [], "N18": [], "N20": [],
     }
 
-    voted = {"N5", "N10", "N15", "N18", "N20"}
+    voted_names = {"N5", "N10", "N15", "N18", "N20"}
 
-    balances = {
-        "N1": 10,
-        "N2": 20,
-        "N3": 30,
-        "N4": 5,
-        "N16": 50,
-        "N19": 100,
+    balances_data = {
+        "N1": 10, "N2": 20, "N3": 30, "N4": 5, "N16": 50, "N19": 100,
     }
 
-    # Убедимся, что все узлы есть в словаре делегаций
-    all_nodes = set(delegations.keys())
-    for delegates_list in delegations.values():
+    # Ensure all nodes are in the delegations dictionary
+    all_nodes = set(delegations_data.keys())
+    for delegates_list in delegations_data.values():
         all_nodes.update(delegates_list)
-    
     for node in all_nodes:
-        if node not in delegations:
-            delegations[node] = []
+        if node not in delegations_data:
+            delegations_data[node] = []
 
-    draw_graph(delegations, voted, balances)
+    # Create and setup the voting system
+    system = VotingSystem()
+    system.setup_delegations(delegations_data, balances_data)
+    system.set_voters(voted_names)
+
+    draw_graph(system)
